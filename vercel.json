@@ -9,12 +9,8 @@
     }
   },
   "rewrites": [
-<<<<<<< HEAD
-    { "source": "/api/:path*", "destination": "/api?__path=:path*" },
-    { "source": "/:path*", "destination": "/index.html" }
-=======
-    { "source": "/api/(.*)", "destination": "/api" },
+    { "source": "/api", "destination": "/api/index" },
+    { "source": "/api/:path*", "destination": "/api/index" },
     { "source": "/(.*)", "destination": "/index.html" }
->>>>>>> a06c5a4d5a47dacfd80b29f49a2a494b30b8c7ad
   ]
 }
