@@ -38,9 +38,18 @@ if (IS_PRODUCTION && !WEBHOOK_SECRET) {
 }
 
 // In-memory rate limiter for sensitive routes
+// Note for Serverless (Netlify Functions): The module-level Map persists across warm invocations
+// within the same execution instance. Across separate serverless instances it acts as a per-instance
+// barrier without throwing. For distributed enterprise limits across all instances, an external store (e.g. Redis) is recommended.
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 function checkRateLimit(key: string, limit: number, windowMs: number): boolean {
   const now = Date.now();
+  // Memory hygiene: prune expired entries if map size grows large during warm execution
+  if (rateLimitMap.size > 1000) {
+    for (const [k, v] of rateLimitMap.entries()) {
+      if (v.resetTime < now) rateLimitMap.delete(k);
+    }
+  }
   const entry = rateLimitMap.get(key);
   if (!entry || entry.resetTime < now) {
     rateLimitMap.set(key, { count: 1, resetTime: now + windowMs });

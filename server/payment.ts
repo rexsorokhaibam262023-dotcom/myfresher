@@ -91,7 +91,7 @@ export class PaymentService {
   }
 
   getWebhookSecret(): string {
-    return this.webhookSecret;
+    return (process.env.RAZORPAY_WEBHOOK_SECRET || '').trim() || this.webhookSecret;
   }
 
   isLiveMode(): boolean {
@@ -232,9 +232,10 @@ export class PaymentService {
    * Docs: https://razorpay.com/docs/webhooks/validate-test/
    */
   verifyWebhookSignature(rawBody: string | Buffer, signatureHeader: string | undefined): boolean {
-    if (!signatureHeader || !this.webhookSecret) return false;
+    const secret = this.getWebhookSecret();
+    if (!signatureHeader || !secret) return false;
     const expectedSignature = crypto
-      .createHmac('sha256', this.webhookSecret)
+      .createHmac('sha256', secret)
       .update(rawBody)
       .digest('hex');
     try {

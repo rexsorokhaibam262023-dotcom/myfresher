@@ -1,4 +1,5 @@
-import mysql from 'mysql2/promise';
+import type mysql from 'mysql2/promise';
+import pg from 'pg';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -17,16 +18,139 @@ import {
 import { hashPassword, verifyAttendeeSessionToken } from './auth.js';
 import { EventSettings, getCachedEventSettings, setCachedEventSettings, getDefaultEventSettings } from './eventSettings.js';
 
+// Configure node-postgres parsers for int8 (COUNT) and numeric (SUM) to return JS numbers
+pg.types.setTypeParser(pg.types.builtins.INT8, (val: string) => parseInt(val, 10));
+pg.types.setTypeParser(pg.types.builtins.NUMERIC, (val: string) => parseFloat(val));
+
+const DATABASE_URL = process.env.NETLIFY_DATABASE_URL || process.env.DATABASE_URL || '';
 const DB_HOST = process.env.DB_HOST || '127.0.0.1';
 const DB_PORT = parseInt(process.env.DB_PORT || '3306', 10);
 const DB_NAME = process.env.DB_NAME || 'msap_freshers_2026';
 const DB_USER = process.env.DB_USER || 'msap_user';
 const DB_PASSWORD = process.env.DB_PASSWORD || '';
 
-const IS_PRODUCTION = process.env.NODE_ENV === 'production';
-const REQUIRE_MYSQL = process.env.REQUIRE_MYSQL === 'true' || IS_PRODUCTION;
+const isProduction = () => process.env.NODE_ENV === 'production';
+const requireDatabase = () => process.env.REQUIRE_MYSQL === 'true' || isProduction();
 
-let mysqlPool: mysql.Pool | null = null;
+export interface QueryResultHeader {
+  insertId: number;
+  affectedRows: number;
+  [key: string]: any;
+}
+
+export interface ConnectionAdapter {
+  query<T = any>(sql: string, params?: any[]): Promise<[T, any]>;
+  beginTransaction(): Promise<void>;
+  commit(): Promise<void>;
+  rollback(): Promise<void>;
+  release(): void;
+}
+
+export interface PoolAdapter {
+  query<T = any>(sql: string, params?: any[]): Promise<[T, any]>;
+  getConnection(): Promise<ConnectionAdapter>;
+  end(): Promise<void>;
+}
+
+export function transformSql(rawSql: string, params: any[] = []): { sql: string; params: any[] } {
+  // 1. Backticks -> double quotes
+  let sql = rawSql.replace(/`([^`]+)`/g, '"$1"');
+
+  // 2. LIKE -> ILIKE
+  sql = sql.replace(/\bLIKE\b/gi, 'ILIKE');
+
+  // 3. MySQL ON DUPLICATE KEY UPDATE -> PostgreSQL ON CONFLICT ("id") DO NOTHING
+  sql = sql.replace(/ON\s+DUPLICATE\s+KEY\s+UPDATE\s+[^;]+/gi, 'ON CONFLICT ("id") DO NOTHING');
+
+  // 4. Transform ? to $1, $2, ... with explicit text cast for ? IS NOT NULL / ? IS NULL
+  let paramIndex = 1;
+  sql = sql.replace(/\?(\s+IS(?:\s+NOT)?\s+NULL)?/gi, (_match, isNullPart) => {
+    const idx = paramIndex++;
+    if (isNullPart) {
+      return `($${idx}::text${isNullPart})`;
+    }
+    return `$${idx}`;
+  });
+
+  // 5. Append RETURNING "id" for INSERT statements if not already returning
+  const trimmed = sql.trim();
+  if (/^INSERT\s+INTO/i.test(trimmed) && !/\bRETURNING\b/i.test(trimmed)) {
+    if (sql.trim().endsWith(';')) {
+      sql = sql.trim().replace(/;$/, ' RETURNING "id";');
+    } else {
+      sql = sql + ' RETURNING "id"';
+    }
+  }
+
+  const cleanParams = params ? params.map((p) => (p === undefined ? null : p)) : [];
+  return { sql, params: cleanParams };
+}
+
+function formatQueryResult<T = any>(res: pg.QueryResult, sql: string): [T, any] {
+  const trimmed = sql.trim();
+  const isSelect = /^SELECT\b/i.test(trimmed) || /^WITH\b/i.test(trimmed);
+  if (isSelect) {
+    return [res.rows as unknown as T, res.fields];
+  }
+
+  const isInsert = /^INSERT\b/i.test(trimmed);
+  if (isInsert) {
+    const firstRow = res.rows && res.rows[0];
+    const insertId = firstRow?.id ? Number(firstRow.id) : 0;
+    const header: QueryResultHeader = {
+      insertId,
+      affectedRows: res.rowCount ?? 0,
+      ...firstRow,
+    };
+    return [header as unknown as T, res.fields];
+  }
+
+  // UPDATE / DELETE / other
+  const header: QueryResultHeader = {
+    insertId: 0,
+    affectedRows: res.rowCount ?? 0,
+  };
+  return [header as unknown as T, res.fields];
+}
+
+class PostgresPoolAdapter implements PoolAdapter {
+  constructor(private pool: pg.Pool) {}
+
+  async query<T = any>(rawSql: string, params?: any[]): Promise<[T, any]> {
+    const { sql, params: cleanParams } = transformSql(rawSql, params);
+    const res = await this.pool.query(sql, cleanParams);
+    return formatQueryResult<T>(res, rawSql);
+  }
+
+  async getConnection(): Promise<ConnectionAdapter> {
+    const client = await this.pool.connect();
+    return {
+      query: async <T = any>(rawSql: string, params?: any[]): Promise<[T, any]> => {
+        const { sql, params: cleanParams } = transformSql(rawSql, params);
+        const res = await client.query(sql, cleanParams);
+        return formatQueryResult<T>(res, rawSql);
+      },
+      beginTransaction: async () => {
+        await client.query('BEGIN');
+      },
+      commit: async () => {
+        await client.query('COMMIT');
+      },
+      rollback: async () => {
+        await client.query('ROLLBACK');
+      },
+      release: () => {
+        client.release();
+      },
+    };
+  }
+
+  async end(): Promise<void> {
+    await this.pool.end();
+  }
+}
+
+let mysqlPool: PoolAdapter | null = null;
 let useLocalFallback = false;
 
 // Local fallback store structure
@@ -169,281 +293,116 @@ function saveLocalStore(store: LocalStore) {
 }
 
 export async function initDatabase(): Promise<void> {
-  console.log(`[DATABASE] Checking MySQL connection at ${DB_HOST}:${DB_PORT}/${DB_NAME}...`);
-  try {
-    const connection = await mysql.createConnection({
-      host: DB_HOST,
-      port: DB_PORT,
-      user: DB_USER,
-      password: DB_PASSWORD,
-      connectTimeout: 2000,
-    });
+  const dbUrl = process.env.NETLIFY_DATABASE_URL || process.env.DATABASE_URL;
 
-    // Create database if not exists
-    await connection.query(`CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`);
-    await connection.end();
-
-    // Create pooled connection to DB
-    mysqlPool = mysql.createPool({
-      host: DB_HOST,
-      port: DB_PORT,
-      user: DB_USER,
-      password: DB_PASSWORD,
-      database: DB_NAME,
-      waitForConnections: true,
-      connectionLimit: Math.max(5, Math.min(50, parseInt(process.env.DB_CONNECTION_LIMIT || '30', 10))),
-      queueLimit: 0,
-      enableKeepAlive: true,
-    });
-
-    // Execute schema initialization
-    await mysqlPool.query(`
-      CREATE TABLE IF NOT EXISTS \`admins\` (
-        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
-        \`email\` VARCHAR(255) NOT NULL UNIQUE,
-        \`password_hash\` VARCHAR(255) NOT NULL,
-        \`role\` VARCHAR(50) NOT NULL DEFAULT 'ADMIN',
-        \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        INDEX \`idx_admins_email\` (\`email\`)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    `);
-
-    await mysqlPool.query(`
-      CREATE TABLE IF NOT EXISTS \`ticket_counter\` (
-        \`id\` INT PRIMARY KEY,
-        \`current_number\` INT NOT NULL DEFAULT 0
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    `);
-
-    await mysqlPool.query(`
-      INSERT INTO \`ticket_counter\` (\`id\`, \`current_number\`)
-      VALUES (1, 0)
-      ON DUPLICATE KEY UPDATE \`id\` = \`id\`;
-    `);
-
-    await mysqlPool.query(`
-      CREATE TABLE IF NOT EXISTS \`event_settings\` (
-        \`id\` INT PRIMARY KEY,
-        \`event_time\` VARCHAR(100) NOT NULL,
-        \`venue\` VARCHAR(500) NOT NULL,
-        \`registration_price\` DECIMAL(10, 2) NOT NULL,
-        \`updated_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    `);
-
-    const defaultEventSettings = getDefaultEventSettings();
-    await mysqlPool.query(
-      `INSERT INTO \`event_settings\` (\`id\`, \`event_time\`, \`venue\`, \`registration_price\`)
-       VALUES (1, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE \`id\` = \`id\``,
-      [defaultEventSettings.time, defaultEventSettings.venue, defaultEventSettings.registrationPrice]
-    );
-
-    const [eventSettingsRows] = await mysqlPool.query<mysql.RowDataPacket[]>(
-      'SELECT event_time, venue, registration_price, updated_at FROM event_settings WHERE id = 1 LIMIT 1'
-    );
-    if (eventSettingsRows.length > 0) {
-      setCachedEventSettings({
-        time: String(eventSettingsRows[0].event_time),
-        venue: String(eventSettingsRows[0].venue),
-        registrationPrice: Number(eventSettingsRows[0].registration_price),
-        updatedAt: new Date(eventSettingsRows[0].updated_at).toISOString(),
+  if (dbUrl) {
+    console.log('[DATABASE] Connecting to Netlify Database (PostgreSQL)...');
+    try {
+      const isLocal = dbUrl.includes('localhost') || dbUrl.includes('127.0.0.1');
+      const pool = new pg.Pool({
+        connectionString: dbUrl,
+        ssl: isLocal ? false : { rejectUnauthorized: false },
+        max: Math.max(5, Math.min(50, parseInt(process.env.DB_CONNECTION_LIMIT || '30', 10))),
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 5000,
       });
-    }
 
-    await mysqlPool.query(`
-      CREATE TABLE IF NOT EXISTS \`attendees\` (
-        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
-        \`ticket_id\` VARCHAR(50) NULL UNIQUE,
-        \`full_name\` VARCHAR(255) NOT NULL,
-        \`phone\` VARCHAR(50) NOT NULL,
-        \`email\` VARCHAR(255) NOT NULL,
-        \`college\` VARCHAR(255) NOT NULL,
-        \`registration_id\` VARCHAR(50) NULL UNIQUE,
-        \`course_class\` VARCHAR(255) NULL,
-        \`academic_year\` VARCHAR(100) NULL,
-        \`category\` ENUM('FRESHER', 'SENIOR') NOT NULL DEFAULT 'FRESHER',
-        \`payment_status\` ENUM('PENDING', 'PAYMENT_SUBMITTED', 'PROCESSING', 'PAID', 'VERIFIED', 'REJECTED', 'FAILED', 'EXPIRED', 'REFUNDED') NOT NULL DEFAULT 'PENDING',
-        \`entry_pass_status\` ENUM('NOT_CREATED', 'ACTIVE', 'CHECKED_IN', 'REVOKED') NOT NULL DEFAULT 'NOT_CREATED',
-        \`ticket_status\` ENUM('NOT_GENERATED', 'UNUSED', 'USED', 'REVOKED') NOT NULL DEFAULT 'NOT_GENERATED',
-        \`registration_status\` ENUM('REGISTERED', 'CANCELLED') NOT NULL DEFAULT 'REGISTERED',
-        \`qr_token\` VARCHAR(255) NULL UNIQUE,
-        \`access_token\` VARCHAR(255) NOT NULL UNIQUE,
-        \`check_in_status\` ENUM('NOT_CHECKED_IN', 'CHECKED_IN') NOT NULL DEFAULT 'NOT_CHECKED_IN',
-        \`google_response_id\` VARCHAR(255) NULL UNIQUE,
-        \`student_roll_id\` VARCHAR(100) NULL,
-        \`payment_utr\` VARCHAR(100) NULL,
-        \`payment_submitted_at\` DATETIME NULL,
-        \`payment_confirmed_at\` DATETIME NULL,
-        \`payment_confirmed_by\` VARCHAR(255) NULL,
-        \`rejection_reason\` TEXT NULL,
-        \`check_in_time\` DATETIME NULL,
-        \`checked_in_by\` VARCHAR(255) NULL,
-        \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        \`updated_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX \`idx_attendees_registration_id\` (\`registration_id\`),
-        INDEX \`idx_attendees_ticket_id\` (\`ticket_id\`),
-        INDEX \`idx_attendees_qr_token\` (\`qr_token\`),
-        INDEX \`idx_attendees_access_token\` (\`access_token\`),
-        INDEX \`idx_attendees_phone\` (\`phone\`),
-        INDEX \`idx_attendees_email\` (\`email\`),
-        INDEX \`idx_attendees_payment_status\` (\`payment_status\`),
-        INDEX \`idx_attendees_entry_pass_status\` (\`entry_pass_status\`),
-        INDEX \`idx_attendees_check_in_status\` (\`check_in_status\`)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    `);
+      // Quick connectivity check
+      await pool.query('SELECT 1');
+      mysqlPool = new PostgresPoolAdapter(pool);
 
-    await mysqlPool.query(`
-      CREATE TABLE IF NOT EXISTS \`payment_transactions\` (
-        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
-        \`registration_id\` INT NOT NULL,
-        \`gateway_provider\` VARCHAR(50) NOT NULL DEFAULT 'razorpay',
-        \`gateway_order_id\` VARCHAR(100) NOT NULL,
-        \`gateway_payment_id\` VARCHAR(100) NULL,
-        \`gateway_signature\` VARCHAR(255) NULL,
-        \`amount\` DECIMAL(10, 2) NOT NULL DEFAULT 350.00,
-        \`currency\` VARCHAR(10) NOT NULL DEFAULT 'INR',
-        \`payment_method\` VARCHAR(50) NULL,
-        \`status\` ENUM('PENDING', 'PAYMENT_SUBMITTED', 'PROCESSING', 'PAID', 'VERIFIED', 'REJECTED', 'FAILED', 'EXPIRED', 'REFUNDED') NOT NULL DEFAULT 'PENDING',
-        \`gateway_event_id\` VARCHAR(100) NULL UNIQUE,
-        \`paid_at\` DATETIME NULL,
-        \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        \`updated_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX \`idx_tx_reg_id\` (\`registration_id\`),
-        INDEX \`idx_tx_order_id\` (\`gateway_order_id\`),
-        INDEX \`idx_tx_payment_id\` (\`gateway_payment_id\`),
-        INDEX \`idx_tx_status\` (\`status\`)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    `);
+      // In local dev/testing, apply migration if schema not yet created
+      try {
+        const migrationPath = path.resolve(process.cwd(), 'netlify', 'database', 'migrations', '001_create_schema.sql');
+        if (fs.existsSync(migrationPath)) {
+          const ddl = fs.readFileSync(migrationPath, 'utf-8');
+          await pool.query(ddl);
+        }
+      } catch (migErr) {
+        console.warn('[DATABASE] Migration note:', migErr);
+      }
 
-    const ensureColumn = async (table: string, column: string, definition: string) => {
-      const [rows] = await mysqlPool!.query<mysql.RowDataPacket[]>(
-        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
-         WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
-        [DB_NAME, table, column]
+      // Seed initial ticket_counter row
+      await mysqlPool.query(
+        'INSERT INTO ticket_counter (id, current_number) VALUES (1, 0) ON DUPLICATE KEY UPDATE id = id;'
       );
-      if (rows.length === 0) {
-        await mysqlPool!.query(`ALTER TABLE \`${table}\` ADD COLUMN \`${column}\` ${definition}`);
-      }
-    };
 
-    await mysqlPool.query(`
-      ALTER TABLE \`attendees\`
-      MODIFY \`payment_status\` ENUM('PENDING', 'PAYMENT_SUBMITTED', 'PROCESSING', 'PAID', 'VERIFIED', 'REJECTED', 'FAILED', 'EXPIRED', 'REFUNDED') NOT NULL DEFAULT 'PENDING'
-    `);
-    await mysqlPool.query(`
-      ALTER TABLE \`payment_transactions\`
-      MODIFY \`status\` ENUM('PENDING', 'PAYMENT_SUBMITTED', 'PROCESSING', 'PAID', 'VERIFIED', 'REJECTED', 'FAILED', 'EXPIRED', 'REFUNDED') NOT NULL DEFAULT 'PENDING'
-    `);
-    await ensureColumn('attendees', 'registration_id', 'VARCHAR(50) NULL UNIQUE');
-    await ensureColumn('attendees', 'course_class', 'VARCHAR(255) NULL');
-    await ensureColumn('attendees', 'academic_year', 'VARCHAR(100) NULL');
-    await ensureColumn('attendees', 'ticket_status', "ENUM('NOT_GENERATED', 'UNUSED', 'USED', 'REVOKED') NOT NULL DEFAULT 'NOT_GENERATED'");
-    await ensureColumn('attendees', 'payment_submitted_at', 'DATETIME NULL');
-    await ensureColumn('attendees', 'rejection_reason', 'TEXT NULL');
-    await ensureColumn('attendees', 'checked_in_by', 'VARCHAR(255) NULL');
-
-    // Safe UTR Unique Index Migration:
-    // 1. Normalize empty string UTRs to NULL and trim whitespace
-    await mysqlPool.query("UPDATE `attendees` SET `payment_utr` = NULL WHERE TRIM(`payment_utr`) = ''");
-    await mysqlPool.query("UPDATE `attendees` SET `payment_utr` = TRIM(`payment_utr`) WHERE `payment_utr` IS NOT NULL");
-
-    // 2. Check for existing duplicate non-null UTR values
-    const [dupUtrs] = await mysqlPool.query<mysql.RowDataPacket[]>(
-      "SELECT `payment_utr`, COUNT(*) as cnt FROM `attendees` WHERE `payment_utr` IS NOT NULL GROUP BY `payment_utr` HAVING cnt > 1"
-    );
-    if (dupUtrs.length > 0) {
-      console.warn(`[DATABASE MIGRATION WARNING] Found ${dupUtrs.length} duplicate UTR group(s) in attendees table. Conflict records:`, dupUtrs);
-      console.warn('[DATABASE MIGRATION WARNING] Unique index creation deferred until duplicate UTR values are manually reconciled. Existing data preserved.');
-    } else {
-      // 3. Check if unique index already exists
-      const [existingIdx] = await mysqlPool.query<mysql.RowDataPacket[]>(
-        "SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'attendees' AND INDEX_NAME = 'idx_unique_attendees_payment_utr'",
-        [DB_NAME]
+      // Seed initial event_settings row
+      const defaultEventSettings = getDefaultEventSettings();
+      await mysqlPool.query(
+        `INSERT INTO event_settings (id, event_time, venue, registration_price)
+         VALUES (1, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE id = id;`,
+        [defaultEventSettings.time, defaultEventSettings.venue, defaultEventSettings.registrationPrice]
       );
-      if (existingIdx.length === 0) {
-        await mysqlPool.query("CREATE UNIQUE INDEX `idx_unique_attendees_payment_utr` ON `attendees` (`payment_utr`)");
-        console.log('[DATABASE] Safely verified and created UNIQUE INDEX `idx_unique_attendees_payment_utr` on attendees.');
+
+      // Cache event settings
+      const [eventSettingsRows] = await mysqlPool.query<any[]>(
+        'SELECT event_time, venue, registration_price, updated_at FROM event_settings WHERE id = 1 LIMIT 1'
+      );
+      if (eventSettingsRows && eventSettingsRows.length > 0) {
+        setCachedEventSettings({
+          time: String(eventSettingsRows[0].event_time),
+          venue: String(eventSettingsRows[0].venue),
+          registrationPrice: Number(eventSettingsRows[0].registration_price),
+          updatedAt: new Date(eventSettingsRows[0].updated_at).toISOString(),
+        });
       }
-    }
 
-    await mysqlPool.query(`
-      CREATE TABLE IF NOT EXISTS \`checkins\` (
-        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
-        \`attendee_id\` INT NOT NULL,
-        \`ticket_id\` VARCHAR(50) NOT NULL,
-        \`checked_in_by\` VARCHAR(255) NOT NULL,
-        \`check_in_time\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        INDEX \`idx_checkins_ticket_id\` (\`ticket_id\`),
-        INDEX \`idx_checkins_attendee_id\` (\`attendee_id\`),
-        CONSTRAINT \`fk_checkins_attendee\`
-          FOREIGN KEY (\`attendee_id\`) REFERENCES \`attendees\` (\`id\`)
-          ON DELETE CASCADE
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    `);
-
-    await mysqlPool.query(`
-      CREATE TABLE IF NOT EXISTS \`audit_logs\` (
-        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
-        \`admin_id\` INT NULL,
-        \`attendee_id\` INT NULL,
-        \`action\` VARCHAR(100) NOT NULL,
-        \`details\` TEXT NULL,
-        \`ip_address\` VARCHAR(50) NULL,
-        \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        INDEX \`idx_audit_action\` (\`action\`),
-        INDEX \`idx_audit_attendee\` (\`attendee_id\`)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    `);
-
-    // Ensure default admin exists
-    const defaultEmail = process.env.ADMIN_DEFAULT_EMAIL || 'admin@msap.org';
-    const [existingAdmins] = await mysqlPool.query<mysql.RowDataPacket[]>('SELECT id FROM admins WHERE email = ?', [defaultEmail]);
-    if (existingAdmins.length === 0) {
-      if (IS_PRODUCTION && (!process.env.ADMIN_DEFAULT_PASSWORD || process.env.ADMIN_DEFAULT_PASSWORD.includes('ChangeMe') || process.env.ADMIN_DEFAULT_PASSWORD.length < 8)) {
-        throw new Error('[FATAL SECURITY ERROR] ADMIN_DEFAULT_PASSWORD must be configured in environment variables with at least 8 characters for production.');
+      // Ensure default admin exists
+      const defaultEmail = process.env.ADMIN_DEFAULT_EMAIL || 'admin@msap.org';
+      const [existingAdmins] = await mysqlPool.query<any[]>('SELECT id FROM admins WHERE email = ?', [defaultEmail]);
+      if (!existingAdmins || existingAdmins.length === 0) {
+        if (isProduction() && (!process.env.ADMIN_DEFAULT_PASSWORD || process.env.ADMIN_DEFAULT_PASSWORD.includes('ChangeMe') || process.env.ADMIN_DEFAULT_PASSWORD.length < 8)) {
+          throw new Error('[FATAL SECURITY ERROR] ADMIN_DEFAULT_PASSWORD must be configured in environment variables with at least 8 characters for production.');
+        }
+        const defaultPassword = process.env.ADMIN_DEFAULT_PASSWORD || 'dev_admin_password_freshers_2026';
+        const hash = await hashPassword(defaultPassword);
+        await mysqlPool.query('INSERT INTO admins (email, password_hash, role) VALUES (?, ?, ?)', [defaultEmail, hash, 'ADMIN']);
+        console.log(`[DATABASE] Default admin created: ${defaultEmail}`);
       }
-      const defaultPassword = process.env.ADMIN_DEFAULT_PASSWORD || 'dev_admin_password_freshers_2026';
-      const hash = await hashPassword(defaultPassword);
-      await mysqlPool.query('INSERT INTO admins (email, password_hash, role) VALUES (?, ?, ?)', [defaultEmail, hash, 'ADMIN']);
-      console.log(`[DATABASE] Default admin created: ${defaultEmail}`);
-    }
 
-    console.log(`[DATABASE] Connected to live MySQL database '${DB_NAME}' successfully!`);
-  } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    if (REQUIRE_MYSQL) {
-      console.error(`[DATABASE CRITICAL ERROR] Failed to connect to MySQL database at ${DB_HOST}:${DB_PORT}/${DB_NAME}: ${errorMsg}`);
-      console.error('[DATABASE CRITICAL ERROR] In production mode (REQUIRE_MYSQL=true), automatic fallback to local JSON storage is strictly prohibited to prevent data loss or duplicate ticketing.');
-      throw new Error(`[FATAL] MySQL connection failure in production: ${errorMsg}. Local JSON fallback is disabled.`);
-    }
-
-    console.warn(`[DATABASE DEV WARNING] MySQL connection not established (${errorMsg}). Switching to persistent relational storage mode for local development.`);
-    useLocalFallback = true;
-    const store = loadLocalStore();
-    const localEventSettings = store.event_settings || getDefaultEventSettings();
-    store.event_settings = localEventSettings;
-    setCachedEventSettings(localEventSettings);
-
-    // Ensure default admin in local store
-    const defaultEmail = process.env.ADMIN_DEFAULT_EMAIL || 'admin@msap.org';
-    const exists = store.admins.find((a) => a.email.toLowerCase() === defaultEmail.toLowerCase());
-    if (!exists) {
-      if (IS_PRODUCTION && (!process.env.ADMIN_DEFAULT_PASSWORD || process.env.ADMIN_DEFAULT_PASSWORD.includes('ChangeMe') || process.env.ADMIN_DEFAULT_PASSWORD.length < 8)) {
-        throw new Error('[FATAL SECURITY ERROR] ADMIN_DEFAULT_PASSWORD must be configured in environment variables with at least 8 characters for production.');
+      console.log('[DATABASE] Connected to Netlify Database (PostgreSQL) successfully!');
+      return;
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      if (requireDatabase()) {
+        console.error(`[DATABASE CRITICAL ERROR] Failed to connect to database: ${errorMsg}`);
+        throw new Error(`[FATAL] Database connection failure in production: ${errorMsg}. Local JSON fallback is disabled.`);
       }
-      const defaultPassword = process.env.ADMIN_DEFAULT_PASSWORD || 'dev_admin_password_freshers_2026';
-      const hash = await hashPassword(defaultPassword);
-      store.admins.push({
-        id: 1,
-        email: defaultEmail,
-        password_hash: hash,
-        role: 'ADMIN',
-        created_at: new Date().toISOString(),
-      });
-      saveLocalStore(store);
-      console.log(`[DATABASE] Seeded default admin in local storage: ${defaultEmail}`);
+      console.warn(`[DATABASE DEV WARNING] Database connection failed (${errorMsg}). Switching to persistent relational storage mode for local development.`);
     }
+  }
+
+  // Fallback to local store for local offline development
+  if (requireDatabase() && isProduction()) {
+    throw new Error('[FATAL] Neither NETLIFY_DATABASE_URL nor DATABASE_URL is configured in production.');
+  }
+
+  console.warn('[DATABASE DEV WARNING] No database URL configured. Running in local JSON storage mode.');
+  useLocalFallback = true;
+  const store = loadLocalStore();
+  const localEventSettings = store.event_settings || getDefaultEventSettings();
+  store.event_settings = localEventSettings;
+  setCachedEventSettings(localEventSettings);
+
+  const defaultEmail = process.env.ADMIN_DEFAULT_EMAIL || 'admin@msap.org';
+  const exists = store.admins.find((a) => a.email.toLowerCase() === defaultEmail.toLowerCase());
+  if (!exists) {
+    if (isProduction() && (!process.env.ADMIN_DEFAULT_PASSWORD || process.env.ADMIN_DEFAULT_PASSWORD.includes('ChangeMe') || process.env.ADMIN_DEFAULT_PASSWORD.length < 8)) {
+      throw new Error('[FATAL SECURITY ERROR] ADMIN_DEFAULT_PASSWORD must be configured in environment variables with at least 8 characters for production.');
+    }
+    const defaultPassword = process.env.ADMIN_DEFAULT_PASSWORD || 'dev_admin_password_freshers_2026';
+    const hash = await hashPassword(defaultPassword);
+    store.admins.push({
+      id: 1,
+      email: defaultEmail,
+      password_hash: hash,
+      role: 'ADMIN',
+      created_at: new Date().toISOString(),
+    });
+    saveLocalStore(store);
+    console.log(`[DATABASE] Seeded default admin in local storage: ${defaultEmail}`);
   }
 }
 
