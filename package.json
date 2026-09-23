@@ -9,13 +9,9 @@
     "start": "node dist/server.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-<<<<<<< HEAD
     "lint": "tsc --noEmit",
     "db:check": "node scripts/db-check.mjs",
     "db:setup": "node scripts/db-setup.mjs"
-=======
-    "lint": "tsc --noEmit"
->>>>>>> 50874f3631ae1e125bfd0b02e131cff1510d882a
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

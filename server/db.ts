@@ -1,10 +1,3 @@
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-import type mysql from 'mysql2/promise';
->>>>>>> a06c5a4d5a47dacfd80b29f49a2a494b30b8c7ad
->>>>>>> 50874f3631ae1e125bfd0b02e131cff1510d882a
 import pg from 'pg';
 import crypto from 'crypto';
 import fs from 'fs';
@@ -13,13 +6,6 @@ import {
   Attendee,
   AttendeeCategory,
   PaymentStatus,
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-  EntryPassStatus,
->>>>>>> a06c5a4d5a47dacfd80b29f49a2a494b30b8c7ad
->>>>>>> 50874f3631ae1e125bfd0b02e131cff1510d882a
   DashboardStats,
   CreateRegistrationDTO,
   CreateRegistrationResult,
@@ -28,10 +14,6 @@ import {
   PaymentTransaction,
 } from './types.js';
 import { hashPassword, verifyAttendeeSessionToken } from './auth.js';
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 50874f3631ae1e125bfd0b02e131cff1510d882a
 import {
   EventSettings,
   getCachedEventSettings,
@@ -41,7 +23,6 @@ import {
 
 // node-postgres normally returns BIGINT/NUMERIC values as strings. The app UI
 // expects numbers for dashboard counters and monetary amounts.
-<<<<<<< HEAD
 pg.types.setTypeParser(pg.types.builtins.INT8, (val: string) => parseInt(val, 10));
 pg.types.setTypeParser(pg.types.builtins.NUMERIC, (val: string) => parseFloat(val));
 
@@ -57,18 +38,6 @@ const DATABASE_URL_SOURCE = process.env.DATABASE_URL
     : process.env.NETLIFY_DATABASE_URL
       ? 'NETLIFY_DATABASE_URL'
       : 'none';
-=======
-=======
-import { EventSettings, getCachedEventSettings, setCachedEventSettings, getDefaultEventSettings } from './eventSettings.js';
-
-// Configure node-postgres parsers for int8 (COUNT) and numeric (SUM) to return JS numbers
->>>>>>> a06c5a4d5a47dacfd80b29f49a2a494b30b8c7ad
-pg.types.setTypeParser(pg.types.builtins.INT8, (val: string) => parseInt(val, 10));
-pg.types.setTypeParser(pg.types.builtins.NUMERIC, (val: string) => parseFloat(val));
-
-const DATABASE_URL = process.env.NETLIFY_DATABASE_URL || process.env.DATABASE_URL || '';
-<<<<<<< HEAD
->>>>>>> 50874f3631ae1e125bfd0b02e131cff1510d882a
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const REQUIRE_DATABASE =
   process.env.REQUIRE_DATABASE === 'true' ||
@@ -202,7 +171,6 @@ async function seedPostgres(client: pg.PoolClient): Promise<void> {
   }
 }
 
-<<<<<<< HEAD
 function validateDatabaseUrl(connectionString: string): void {
   if (!connectionString) {
     throw new Error('DATABASE_URL is not configured. Add a hosted PostgreSQL connection string in Vercel Environment Variables.');
@@ -245,13 +213,6 @@ async function initPostgres(): Promise<void> {
     connectionTimeoutMillis: Math.max(3000, parseInt(process.env.DB_CONNECTION_TIMEOUT_MS || '10000', 10) || 10000),
     idleTimeoutMillis: Math.max(1000, parseInt(process.env.DB_IDLE_TIMEOUT_MS || '10000', 10) || 10000),
     allowExitOnIdle: true,
-=======
-async function initPostgres(): Promise<void> {
-  if (!DATABASE_URL) throw new Error('DATABASE_URL is not configured.');
-  pool = new pg.Pool({
-    connectionString: DATABASE_URL,
-    max: Math.max(1, parseInt(process.env.DB_CONNECTION_LIMIT || '10', 10) || 10),
->>>>>>> 50874f3631ae1e125bfd0b02e131cff1510d882a
     ssl: /localhost|127\.0\.0\.1/.test(DATABASE_URL) ? undefined : { rejectUnauthorized: false },
   });
 
@@ -259,20 +220,14 @@ async function initPostgres(): Promise<void> {
   try {
     await client.query('SELECT 1');
 
-<<<<<<< HEAD
     // Keep deployment self-contained but avoid repeatedly running DDL on every
     // serverless cold start. An advisory lock prevents concurrent cold starts
     // from racing while the first instance applies the schema.
-=======
-    // Keep the deployment self-contained. The migration is idempotent and safe
-    // to run during a cold start; warm invocations are guarded by initPromise.
->>>>>>> 50874f3631ae1e125bfd0b02e131cff1510d882a
     const migrationPath = path.join(process.cwd(), 'database', 'migrations', '001_create_schema.sql');
     if (!fs.existsSync(migrationPath)) {
       throw new Error(`Database migration file not found: ${migrationPath}`);
     }
     const migrationSql = fs.readFileSync(migrationPath, 'utf8');
-<<<<<<< HEAD
     const migrationId = '001_create_schema';
 
     await client.query(`
@@ -300,9 +255,6 @@ async function initPostgres(): Promise<void> {
       await client.query(`SELECT pg_advisory_unlock(hashtext($1))`, ['msap_freshers_schema_migration']).catch(() => {});
     }
 
-=======
-    await client.query(migrationSql);
->>>>>>> 50874f3631ae1e125bfd0b02e131cff1510d882a
     await seedPostgres(client);
 
     const settingsRes = await client.query(
@@ -1479,25 +1431,4 @@ export async function listAttendees(params: {
   attendees.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
   const total = attendees.length;
   return { attendees: attendees.slice(offset, offset + limit), total };
-<<<<<<< HEAD
-=======
-=======
-const DB_HOST = process.env.DB_HOST || '127.0.0.1';
-const DB_PORT = parseInt(process.env.DB_PORT || '3306', 10);
-const DB_NAME = process.env.DB_NAME || 'msap_freshers_2026';
-const DB_USER = process.env.DB_USER || 'msap_user';
-const DB_PASSWORD = process.env.DB_PASSWORD || '';
-
-const isProduction = () => process.env.NODE_ENV === 'production';
-// Allow local fallback unless the app is explicitly configured to require a database.
-// This prevents a missing DB config from breaking registration when the app is being
-// run in a local/demo environment without production credentials.
-const requireDatabase = () => process.env.REQUIRE_MYSQL === 'true';
-
-export interface QueryResultHeader {
-  insertId: number;
-  affectedRows: number;
-  [key: string]: any;
->>>>>>> a06c5a4d5a47dacfd80b29f49a2a494b30b8c7ad
->>>>>>> 50874f3631ae1e125bfd0b02e131cff1510d882a
 }

@@ -62,7 +62,6 @@ function ensureDatabase(): Promise<void> {
   return dbReady;
 }
 
-<<<<<<< HEAD
 function databaseEnvStatus() {
   const source = process.env.DATABASE_URL
     ? 'DATABASE_URL'
@@ -101,15 +100,12 @@ function classifyDatabaseError(message: string): string {
   return 'DATABASE_INITIALIZATION_FAILED';
 }
 
-=======
->>>>>>> 50874f3631ae1e125bfd0b02e131cff1510d882a
 export default async function handler(req: Request, res: Response) {
   restoreRewrittenApiPath(req);
   try {
     await ensureDatabase();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-<<<<<<< HEAD
     const code = classifyDatabaseError(message);
     const env = databaseEnvStatus();
     console.error('[API] Database initialization failed:', { code, message, env });
@@ -144,10 +140,6 @@ export default async function handler(req: Request, res: Response) {
           : 'Registration service is temporarily unavailable.';
 
     res.status(503).json({ error: publicMessage, code });
-=======
-    console.error('[API] Database initialization failed:', message);
-    res.status(503).json({ error: 'Registration service is temporarily unavailable.' });
->>>>>>> 50874f3631ae1e125bfd0b02e131cff1510d882a
     return;
   }
   return (app as unknown as (req: Request, res: Response) => void)(req, res);

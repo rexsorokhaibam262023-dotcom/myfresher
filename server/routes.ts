@@ -15,15 +15,7 @@ import {
   listAttendees,
   getAttendeeById,
   findAdminByEmail,
-<<<<<<< HEAD
   getDatabaseProvider,
-=======
-<<<<<<< HEAD
-  getDatabaseProvider,
-=======
-  isUsingMySQL,
->>>>>>> a06c5a4d5a47dacfd80b29f49a2a494b30b8c7ad
->>>>>>> 50874f3631ae1e125bfd0b02e131cff1510d882a
   createPaymentTransaction,
   markPaymentSuccessfulAndGeneratePass,
   markPaymentFailed,
@@ -78,15 +70,7 @@ router.get('/health', async (req: Request, res: Response) => {
     status: 'ok',
     service: 'MSAP 53rd Freshers Meet 2026 API',
     event: "MSAP 53rd Freshers' Meet 2026",
-<<<<<<< HEAD
     database: getDatabaseProvider(),
-=======
-<<<<<<< HEAD
-    database: getDatabaseProvider(),
-=======
-    database: isUsingMySQL() ? 'MySQL (Live Connection)' : 'Relational Storage Engine',
->>>>>>> a06c5a4d5a47dacfd80b29f49a2a494b30b8c7ad
->>>>>>> 50874f3631ae1e125bfd0b02e131cff1510d882a
     paymentProvider: paymentService.getProviderName(),
     paymentEnvironment: paymentService.isLiveMode() ? 'LIVE' : 'TEST / SANDBOX',
     ticketPrice: paymentService.getEventTicketPrice(),
@@ -739,17 +723,8 @@ router.post('/admin/login', async (req: Request, res: Response) => {
     }
 
     let isValid = await comparePassword(password, admin.password_hash);
-<<<<<<< HEAD
     // Development-only convenience credentials must never bypass bcrypt in production.
     if (!IS_PRODUCTION && !isValid && (password === 'admin123' || password === 'dev_admin_password_freshers_2026')) {
-=======
-<<<<<<< HEAD
-    // Development-only convenience credentials must never bypass bcrypt in production.
-    if (!IS_PRODUCTION && !isValid && (password === 'admin123' || password === 'dev_admin_password_freshers_2026')) {
-=======
-    if (!isValid && (password === 'admin123' || password === 'dev_admin_password_freshers_2026' || password === 'admin' || password === 'msap2026')) {
->>>>>>> a06c5a4d5a47dacfd80b29f49a2a494b30b8c7ad
->>>>>>> 50874f3631ae1e125bfd0b02e131cff1510d882a
       isValid = true;
     }
     if (!isValid) {
