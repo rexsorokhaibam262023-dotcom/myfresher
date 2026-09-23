@@ -1,0 +1,133 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #061A2E;
+  --surface: #0C2C4A;
+  --surface-hover: #103A5F;
+  --border: #164468;
+
+  --primary: #38BDF8;
+  --primary-hover: #7DD3FC;
+  --primary-deep: #0284C7;
+  --on-primary: #061A2E;
+
+  --accent: #FDBA74;
+  --accent-soft: rgba(253, 186, 116, 0.15);
+
+  --text: #EAF6FF;
+  --text-muted: #9DB8CF;
+
+  --success: #34D399;
+  --danger: #FB7185;
+
+  --ring: rgba(56, 189, 248, 0.35);
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+@theme {
+  --color-bg: #061A2E;
+  --color-surface: #0C2C4A;
+  --color-surface-hover: #103A5F;
+  --color-border: #164468;
+
+  --color-primary: #38BDF8;
+  --color-primary-hover: #7DD3FC;
+  --color-primary-deep: #0284C7;
+  --color-on-primary: #061A2E;
+
+  --color-accent: #FDBA74;
+  --color-accent-soft: rgba(253, 186, 116, 0.15);
+
+  --color-text: #EAF6FF;
+  --color-text-muted: #9DB8CF;
+
+  --color-success: #34D399;
+  --color-danger: #FB7185;
+
+  --color-midnight-base: #061A2E;
+  --color-midnight-surface: #0C2C4A;
+  --color-card-glass: #0C2C4A;
+  --color-text-primary: #EAF6FF;
+
+  --font-display-title: 'Space Grotesk', 'Plus Jakarta Sans', sans-serif;
+  --font-mono-code: 'JetBrains Mono', monospace;
+}
+
+@layer base {
+  html, body {
+    margin: 0;
+    padding: 0;
+    background-color: #061A2E;
+    color: #EAF6FF;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+  }
+}
+
+.font-mono-code { font-family: 'JetBrains Mono', monospace; }
+.font-display-title { font-family: 'Space Grotesk', 'Plus Jakarta Sans', sans-serif; }
+.font-label-caps {
+  font-size: 11px;
+  line-height: 14px;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+}
+.font-headline-sm {
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+}
+.font-headline-md {
+  font-size: 24px;
+  line-height: 32px;
+  letter-spacing: -0.01em;
+  font-weight: 600;
+}
+.font-headline-lg {
+  font-size: 34px;
+  line-height: 42px;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}
+.font-display-hero {
+  font-size: 48px;
+  line-height: 56px;
+  letter-spacing: -0.03em;
+  font-weight: 800;
+}
+@media (min-width: 640px) {
+  .font-display-hero {
+    font-size: 52px;
+    line-height: 60px;
+  }
+}
+.font-body-sm {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 400;
+}
+.font-body-md {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 400;
+}
+.font-body-lg {
+  font-size: 18px;
+  line-height: 28px;
+  font-weight: 400;
+}
+.font-label-md {
+  font-size: 12px;
+  line-height: 16px;
+  letter-spacing: 0.02em;
+  font-weight: 600;
+}
+.font-label-lg {
+  font-size: 14px;
+  line-height: 20px;
+  letter-spacing: 0.01em;
+  font-weight: 600;
+}
