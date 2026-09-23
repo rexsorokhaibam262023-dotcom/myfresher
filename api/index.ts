@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express, { type Request, type Response } from 'express';
 import cors from 'cors';
 import routes from '../server/routes.js';
-import { initDatabase } from '../server/db.js';
+import { initDatabase, checkDatabaseHealth } from '../server/db.js';
 
 // Single Express app reused across warm serverless invocations.
 const app = express();
@@ -97,11 +97,53 @@ function classifyDatabaseError(message: string): string {
   if (text.includes('timeout') || text.includes('etimedout')) return 'DATABASE_CONNECTION_TIMEOUT';
   if (text.includes('ssl') || text.includes('certificate')) return 'DATABASE_SSL_ERROR';
   if (text.includes('migration file not found')) return 'DATABASE_MIGRATION_MISSING';
+  if (text.includes('database_migration_lock_busy')) return 'DATABASE_MIGRATION_LOCK_BUSY';
+  if (text.includes('canceling statement due to statement timeout')) return 'DATABASE_QUERY_TIMEOUT';
   return 'DATABASE_INITIALIZATION_FAILED';
 }
 
 export default async function handler(req: Request, res: Response) {
   restoreRewrittenApiPath(req);
+  const requestPath = (req.url || '').split('?')[0];
+
+  // Health must stay lightweight and bounded. Do not run migrations here.
+  if (requestPath === '/api/health' || requestPath === '/health') {
+    const env = databaseEnvStatus();
+    try {
+      const health = await checkDatabaseHealth();
+      res.status(200).json({
+        status: 'ok',
+        service: "MSAP 53rd Freshers Meet 2026 API",
+        database: {
+          ...env,
+          provider: health.provider,
+          connected: health.connected,
+          schemaReady: health.schemaReady,
+        },
+        paymentProvider: 'razorpay',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const code = classifyDatabaseError(message);
+      console.error('[API] Database health probe failed:', { code, message, env });
+      res.status(503).json({
+        status: 'error',
+        service: "MSAP 53rd Freshers Meet 2026 API",
+        database: { ...env, code },
+        message:
+          code === 'DATABASE_URL_MISSING'
+            ? 'DATABASE_URL is not configured in the deployment environment.'
+            : code === 'DATABASE_URL_PLACEHOLDER'
+              ? 'DATABASE_URL contains placeholder values and must be replaced with the real PostgreSQL connection string.'
+              : 'Database connectivity check failed. Check the Vercel Function log for the detailed server-side error.',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+  }
+
   try {
     await ensureDatabase();
   } catch (err) {
@@ -112,7 +154,6 @@ export default async function handler(req: Request, res: Response) {
 
     // /api/health intentionally returns safe diagnostics so deployment problems
     // can be identified without exposing credentials or connection strings.
-    const requestPath = (req.url || '').split('?')[0];
     if (requestPath === '/api/health' || requestPath === '/health') {
       res.status(503).json({
         status: 'error',

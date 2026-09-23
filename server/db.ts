@@ -201,6 +201,43 @@ function validateDatabaseUrl(connectionString: string): void {
   }
 }
 
+
+export interface DatabaseHealthResult {
+  provider: 'PostgreSQL';
+  connected: boolean;
+  schemaReady: boolean;
+}
+
+/**
+ * Lightweight database probe used by /api/health. It deliberately does NOT run
+ * migrations or bootstrap data, so a health request can never wait on the
+ * migration advisory lock. The probe has its own short connection/query timeout.
+ */
+export async function checkDatabaseHealth(): Promise<DatabaseHealthResult> {
+  validateDatabaseUrl(DATABASE_URL);
+  const timeout = Math.max(2000, parseInt(process.env.DB_HEALTH_TIMEOUT_MS || '5000', 10) || 5000);
+  const client = new pg.Client({
+    connectionString: DATABASE_URL,
+    connectionTimeoutMillis: timeout,
+    query_timeout: timeout,
+    ssl: /localhost|127\.0\.0\.1/.test(DATABASE_URL) ? undefined : { rejectUnauthorized: false },
+  });
+
+  try {
+    await client.connect();
+    const result = await client.query(
+      `SELECT 1 AS ok, to_regclass('public.attendees')::text AS attendees_table`
+    );
+    return {
+      provider: 'PostgreSQL',
+      connected: Number(result.rows[0]?.ok || 0) === 1,
+      schemaReady: Boolean(result.rows[0]?.attendees_table),
+    };
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
+
 async function initPostgres(): Promise<void> {
   validateDatabaseUrl(DATABASE_URL);
   console.log(`[DB] Initializing PostgreSQL using ${DATABASE_URL_SOURCE}.`);
@@ -220,9 +257,15 @@ async function initPostgres(): Promise<void> {
   try {
     await client.query('SELECT 1');
 
+    // Bound SQL/lock waits so a Vercel Function never hangs indefinitely.
+    const statementTimeout = Math.max(5000, parseInt(process.env.DB_STATEMENT_TIMEOUT_MS || '20000', 10) || 20000);
+    const lockTimeout = Math.max(1000, parseInt(process.env.DB_LOCK_TIMEOUT_MS || '5000', 10) || 5000);
+    await client.query(`SET statement_timeout = '${statementTimeout}ms'`);
+    await client.query(`SET lock_timeout = '${lockTimeout}ms'`);
+
     // Keep deployment self-contained but avoid repeatedly running DDL on every
-    // serverless cold start. An advisory lock prevents concurrent cold starts
-    // from racing while the first instance applies the schema.
+    // serverless cold start. Use a non-blocking advisory lock so concurrent
+    // cold starts fail fast rather than waiting indefinitely.
     const migrationPath = path.join(process.cwd(), 'database', 'migrations', '001_create_schema.sql');
     if (!fs.existsSync(migrationPath)) {
       throw new Error(`Database migration file not found: ${migrationPath}`);
@@ -236,7 +279,14 @@ async function initPostgres(): Promise<void> {
         applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    await client.query(`SELECT pg_advisory_lock(hashtext($1))`, ['msap_freshers_schema_migration']);
+    const lockResult = await client.query(
+      `SELECT pg_try_advisory_lock(hashtext($1)) AS acquired`,
+      ['msap_freshers_schema_migration']
+    );
+    const acquiredMigrationLock = Boolean(lockResult.rows[0]?.acquired);
+    if (!acquiredMigrationLock) {
+      throw new Error('DATABASE_MIGRATION_LOCK_BUSY: another instance is currently initializing the schema; retry shortly.');
+    }
     try {
       const applied = await client.query('SELECT 1 FROM schema_migrations WHERE id = $1 LIMIT 1', [migrationId]);
       if ((applied.rowCount || 0) === 0) {
