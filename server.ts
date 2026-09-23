@@ -2,9 +2,12 @@ import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import cors from 'cors';
+import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import routes from './server/routes.js';
 import { initDatabase } from './server/db.js';
+
+const currentFilename = fileURLToPath(import.meta.url);
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
@@ -31,7 +34,7 @@ async function startServer() {
   app.use('/', routes);
 
   // Serve Vite middleware in development or compiled static files in production
-  const isProd = process.env.NODE_ENV === 'production' || __filename.includes('dist');
+  const isProd = process.env.NODE_ENV === 'production' || currentFilename.includes('dist');
   if (!isProd) {
     const vite = await createViteServer({
       server: { middlewareMode: true },

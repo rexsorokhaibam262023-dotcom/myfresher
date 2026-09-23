@@ -11,6 +11,36 @@
   ],
   "attendees": [
     {
+      "id": 2,
+      "registration_id": "REG-0002",
+      "ticket_id": null,
+      "full_name": "Ping Test",
+      "phone": "9199990000",
+      "email": "ping-diagnostic@example.com",
+      "college": "MSAP Architecture & Planning",
+      "course_class": null,
+      "academic_year": null,
+      "category": "FRESHER",
+      "payment_status": "PENDING",
+      "entry_pass_status": "NOT_CREATED",
+      "ticket_status": "NOT_GENERATED",
+      "registration_status": "REGISTERED",
+      "qr_token": null,
+      "access_token": "acc_5b15bfb8f6ffc9758f826db4957419e91530389ac86e18e7",
+      "check_in_status": "NOT_CHECKED_IN",
+      "google_response_id": null,
+      "student_roll_id": null,
+      "payment_utr": null,
+      "payment_submitted_at": null,
+      "payment_confirmed_at": null,
+      "payment_confirmed_by": null,
+      "rejection_reason": null,
+      "check_in_time": null,
+      "checked_in_by": null,
+      "created_at": "2026-09-23T13:55:47.084Z",
+      "updated_at": "2026-09-23T13:55:47.084Z"
+    },
+    {
       "id": 1,
       "registration_id": "REG-0001",
       "ticket_id": "FM26-001",
@@ -65,5 +95,13 @@
     "registrationPrice": 350,
     "updatedAt": "1970-01-01T00:00:00.000Z"
   },
-  "audit_logs": []
+  "audit_logs": [
+    {
+      "id": 1,
+      "attendee_id": 2,
+      "action": "REGISTRATION_CREATED",
+      "details": "New registration created: REG-0002 for Ping Test (FRESHER)",
+      "created_at": "2026-09-23T13:55:47.084Z"
+    }
+  ]
 }
