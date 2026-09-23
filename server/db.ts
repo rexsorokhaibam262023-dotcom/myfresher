@@ -313,7 +313,7 @@ export async function initDatabase(): Promise<void> {
 
       // In local dev/testing, apply migration if schema not yet created
       try {
-        const migrationPath = path.resolve(process.cwd(), 'netlify', 'database', 'migrations', '001_create_schema.sql');
+        const migrationPath = path.resolve(process.cwd(), 'database', 'migrations', '001_create_schema.sql');
         if (fs.existsSync(migrationPath)) {
           const ddl = fs.readFileSync(migrationPath, 'utf-8');
           await pool.query(ddl);
