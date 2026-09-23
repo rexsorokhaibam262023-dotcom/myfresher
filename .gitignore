@@ -4,6 +4,7 @@ dist/
 coverage/
 .DS_Store
 *.log
+<<<<<<< HEAD
 .env
 .env*
 .env.*
@@ -13,3 +14,7 @@ coverage/
 
 
 
+=======
+.env*
+!.env.example
+>>>>>>> 50874f3631ae1e125bfd0b02e131cff1510d882a

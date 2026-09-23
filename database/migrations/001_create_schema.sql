@@ -1,5 +1,9 @@
 -- ==============================================================================
+<<<<<<< HEAD
 -- MSAP 53rd Freshers' Meet 2026 - PostgreSQL Initial Schema
+=======
+-- MSAP 53rd Freshers' Meet 2026 - Netlify Database (PostgreSQL) Initial Schema
+>>>>>>> 50874f3631ae1e125bfd0b02e131cff1510d882a
 -- Migration: 001_create_schema.sql
 -- ==============================================================================
 
@@ -95,7 +99,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS "idx_unique_attendees_payment_utr" ON "attende
 -- 6. Payment Transactions Table
 CREATE TABLE IF NOT EXISTS "payment_transactions" (
   "id" SERIAL PRIMARY KEY,
+<<<<<<< HEAD
   "registration_id" INT NOT NULL REFERENCES "attendees" ("id") ON DELETE CASCADE,
+=======
+<<<<<<< HEAD
+  "registration_id" INT NOT NULL REFERENCES "attendees" ("id") ON DELETE CASCADE,
+=======
+  "registration_id" INT NOT NULL,
+>>>>>>> a06c5a4d5a47dacfd80b29f49a2a494b30b8c7ad
+>>>>>>> 50874f3631ae1e125bfd0b02e131cff1510d882a
   "gateway_provider" VARCHAR(50) NOT NULL DEFAULT 'razorpay',
   "gateway_order_id" VARCHAR(100) NOT NULL,
   "gateway_payment_id" VARCHAR(100) NULL,
@@ -144,6 +156,7 @@ CREATE TABLE IF NOT EXISTS "audit_logs" (
 );
 CREATE INDEX IF NOT EXISTS "idx_audit_action" ON "audit_logs" ("action");
 CREATE INDEX IF NOT EXISTS "idx_audit_attendee" ON "audit_logs" ("attendee_id");
+<<<<<<< HEAD
 
 -- 9. Safe base seed rows. Administrator credentials are bootstrapped by the app
 -- from ADMIN_DEFAULT_EMAIL / ADMIN_DEFAULT_PASSWORD so no password is stored in SQL.
@@ -154,3 +167,5 @@ ON CONFLICT ("id") DO NOTHING;
 INSERT INTO "event_settings" ("id", "event_time", "venue", "registration_price")
 VALUES (1, '5:30 PM Sharp', 'Pune (MSAP Campus Main Auditorium)', 350.00)
 ON CONFLICT ("id") DO NOTHING;
+=======
+>>>>>>> 50874f3631ae1e125bfd0b02e131cff1510d882a

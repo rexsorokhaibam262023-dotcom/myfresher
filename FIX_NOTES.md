@@ -54,6 +54,7 @@ At minimum configure:
 2. `GET /api/event-settings` → should return JSON event settings.
 3. Submit a fresh registration → `POST /api/registrations` should return HTTP 201 with `attendee` and `sessionToken`.
 4. Then test Razorpay order creation and checkout.
+<<<<<<< HEAD
 
 
 ## Production database diagnostics update
@@ -61,3 +62,5 @@ At minimum configure:
 - Placeholder or malformed database URLs fail with a clear server-side reason.
 - `/api/health` returns safe database configuration diagnostics without exposing credentials.
 - Registration 503 responses include a machine-readable database error code.
+=======
+>>>>>>> 50874f3631ae1e125bfd0b02e131cff1510d882a
