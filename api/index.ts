@@ -25,26 +25,29 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api', routes);
 app.use('/', routes);
 
-<<<<<<< HEAD
 
 function restoreRewrittenApiPath(req: Request): void {
-  // vercel.json rewrites /api/:path* -> /api?__path=:path*. Reconstruct the
-  // original URL before Express routing so /api/registrations, /api/health, etc.
-  // do not collapse to the bare /api function endpoint.
+  // Vercel rewrites /api/:path* to /api/index. Named source parameters that
+  // are not used in the destination are forwarded as query parameters, so
+  // /api/registrations arrives here with ?path=registrations. Reconstruct the
+  // original API URL before Express routing. Keep __path support for any older
+  // deployment that used the previous rewrite format.
   try {
-    const parsed = new URL(req.url || '/api', 'http://localhost');
-    const rewrittenPath = parsed.searchParams.get('__path');
+    const parsed = new URL(req.url || '/api/index', 'http://localhost');
+    const rewrittenPath =
+      parsed.searchParams.get('path') || parsed.searchParams.get('__path');
     if (!rewrittenPath) return;
+
+    parsed.searchParams.delete('path');
     parsed.searchParams.delete('__path');
     const query = parsed.searchParams.toString();
-    req.url = `/api/${rewrittenPath}${query ? `?${query}` : ''}`;
+    const cleanPath = rewrittenPath.replace(/^\/+|\/+$/g, '');
+    req.url = `/api/${cleanPath}${query ? `?${query}` : ''}`;
   } catch (err) {
     console.warn('[API] Could not restore rewritten API path:', err);
   }
 }
 
-=======
->>>>>>> a06c5a4d5a47dacfd80b29f49a2a494b30b8c7ad
 // initDatabase() must run once before the first request is handled. It is
 // memoized so warm invocations skip re-initialization; a failure clears the
 // cache so the next invocation can retry a transient outage.
@@ -60,10 +63,7 @@ function ensureDatabase(): Promise<void> {
 }
 
 export default async function handler(req: Request, res: Response) {
-<<<<<<< HEAD
   restoreRewrittenApiPath(req);
-=======
->>>>>>> a06c5a4d5a47dacfd80b29f49a2a494b30b8c7ad
   try {
     await ensureDatabase();
   } catch (err) {
