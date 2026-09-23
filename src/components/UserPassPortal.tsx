@@ -499,6 +499,7 @@ export const UserPassPortal: React.FC<UserPassPortalProps> = ({ initialAccessTok
         }),
       });
 
+<<<<<<< HEAD
       const rawResponse = await res.text();
       let data: any = {};
 
@@ -513,6 +514,9 @@ export const UserPassPortal: React.FC<UserPassPortalProps> = ({ initialAccessTok
         });
         throw new Error(`Registration server returned HTTP ${res.status}. Please check the API deployment.`);
       }
+=======
+      const data = await res.json();
+>>>>>>> a06c5a4d5a47dacfd80b29f49a2a494b30b8c7ad
 
       if (res.ok && data.attendee) {
         const token = data.sessionToken || data.accessToken || data.attendee.session_token || data.attendee.access_token;
@@ -556,6 +560,7 @@ export const UserPassPortal: React.FC<UserPassPortalProps> = ({ initialAccessTok
       } else {
         setFormErrorMessage(data.error || 'Registration failed. Please verify your entries and try again.');
       }
+<<<<<<< HEAD
     } catch (err) {
       console.error('Registration submission failed:', err);
       setFormErrorMessage(
@@ -563,6 +568,10 @@ export const UserPassPortal: React.FC<UserPassPortalProps> = ({ initialAccessTok
           ? err.message
           : 'Unable to connect to registration server.'
       );
+=======
+    } catch {
+      setFormErrorMessage('Unable to connect to registration server.');
+>>>>>>> a06c5a4d5a47dacfd80b29f49a2a494b30b8c7ad
     } finally {
       setSubmitting(false);
     }

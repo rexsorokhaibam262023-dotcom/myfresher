@@ -95,7 +95,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS "idx_unique_attendees_payment_utr" ON "attende
 -- 6. Payment Transactions Table
 CREATE TABLE IF NOT EXISTS "payment_transactions" (
   "id" SERIAL PRIMARY KEY,
+<<<<<<< HEAD
   "registration_id" INT NOT NULL REFERENCES "attendees" ("id") ON DELETE CASCADE,
+=======
+  "registration_id" INT NOT NULL,
+>>>>>>> a06c5a4d5a47dacfd80b29f49a2a494b30b8c7ad
   "gateway_provider" VARCHAR(50) NOT NULL DEFAULT 'razorpay',
   "gateway_order_id" VARCHAR(100) NOT NULL,
   "gateway_payment_id" VARCHAR(100) NULL,

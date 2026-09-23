@@ -1,3 +1,7 @@
+<<<<<<< HEAD
+=======
+import type mysql from 'mysql2/promise';
+>>>>>>> a06c5a4d5a47dacfd80b29f49a2a494b30b8c7ad
 import pg from 'pg';
 import crypto from 'crypto';
 import fs from 'fs';
@@ -6,6 +10,10 @@ import {
   Attendee,
   AttendeeCategory,
   PaymentStatus,
+<<<<<<< HEAD
+=======
+  EntryPassStatus,
+>>>>>>> a06c5a4d5a47dacfd80b29f49a2a494b30b8c7ad
   DashboardStats,
   CreateRegistrationDTO,
   CreateRegistrationResult,
@@ -14,6 +22,7 @@ import {
   PaymentTransaction,
 } from './types.js';
 import { hashPassword, verifyAttendeeSessionToken } from './auth.js';
+<<<<<<< HEAD
 import {
   EventSettings,
   getCachedEventSettings,
@@ -23,10 +32,16 @@ import {
 
 // node-postgres normally returns BIGINT/NUMERIC values as strings. The app UI
 // expects numbers for dashboard counters and monetary amounts.
+=======
+import { EventSettings, getCachedEventSettings, setCachedEventSettings, getDefaultEventSettings } from './eventSettings.js';
+
+// Configure node-postgres parsers for int8 (COUNT) and numeric (SUM) to return JS numbers
+>>>>>>> a06c5a4d5a47dacfd80b29f49a2a494b30b8c7ad
 pg.types.setTypeParser(pg.types.builtins.INT8, (val: string) => parseInt(val, 10));
 pg.types.setTypeParser(pg.types.builtins.NUMERIC, (val: string) => parseFloat(val));
 
 const DATABASE_URL = process.env.NETLIFY_DATABASE_URL || process.env.DATABASE_URL || '';
+<<<<<<< HEAD
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const REQUIRE_DATABASE =
   process.env.REQUIRE_DATABASE === 'true' ||
@@ -1356,4 +1371,22 @@ export async function listAttendees(params: {
   attendees.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
   const total = attendees.length;
   return { attendees: attendees.slice(offset, offset + limit), total };
+=======
+const DB_HOST = process.env.DB_HOST || '127.0.0.1';
+const DB_PORT = parseInt(process.env.DB_PORT || '3306', 10);
+const DB_NAME = process.env.DB_NAME || 'msap_freshers_2026';
+const DB_USER = process.env.DB_USER || 'msap_user';
+const DB_PASSWORD = process.env.DB_PASSWORD || '';
+
+const isProduction = () => process.env.NODE_ENV === 'production';
+// Allow local fallback unless the app is explicitly configured to require a database.
+// This prevents a missing DB config from breaking registration when the app is being
+// run in a local/demo environment without production credentials.
+const requireDatabase = () => process.env.REQUIRE_MYSQL === 'true';
+
+export interface QueryResultHeader {
+  insertId: number;
+  affectedRows: number;
+  [key: string]: any;
+>>>>>>> a06c5a4d5a47dacfd80b29f49a2a494b30b8c7ad
 }

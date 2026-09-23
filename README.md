@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # MSAP Freshers Meet 2026
 
 ## Fixed registration/payment backend
@@ -22,3 +23,9 @@ This build restores the missing database service, preserves Vercel API subpaths,
 4. Then test Razorpay order creation and checkout.
 
 Local development can use `database/local_store.json` when `DATABASE_URL` is not configured and `NODE_ENV` is not `production`.
+=======
+# party
+# party
+# party_
+# myfresher
+>>>>>>> a06c5a4d5a47dacfd80b29f49a2a494b30b8c7ad

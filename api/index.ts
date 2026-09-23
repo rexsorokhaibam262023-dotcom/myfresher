@@ -25,6 +25,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api', routes);
 app.use('/', routes);
 
+<<<<<<< HEAD
 
 function restoreRewrittenApiPath(req: Request): void {
   // vercel.json rewrites /api/:path* -> /api?__path=:path*. Reconstruct the
@@ -42,6 +43,8 @@ function restoreRewrittenApiPath(req: Request): void {
   }
 }
 
+=======
+>>>>>>> a06c5a4d5a47dacfd80b29f49a2a494b30b8c7ad
 // initDatabase() must run once before the first request is handled. It is
 // memoized so warm invocations skip re-initialization; a failure clears the
 // cache so the next invocation can retry a transient outage.
@@ -57,7 +60,10 @@ function ensureDatabase(): Promise<void> {
 }
 
 export default async function handler(req: Request, res: Response) {
+<<<<<<< HEAD
   restoreRewrittenApiPath(req);
+=======
+>>>>>>> a06c5a4d5a47dacfd80b29f49a2a494b30b8c7ad
   try {
     await ensureDatabase();
   } catch (err) {
