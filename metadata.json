@@ -1,0 +1,6 @@
+{
+  "name": "MSAP 53rd Freshers' Meet 2026",
+  "description": "Official ticketing, Google Sheets/Apps Script integration, and gate check-in system for MSAP 53rd Freshers' Meet 2026.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

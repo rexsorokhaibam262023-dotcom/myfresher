@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: msap-freshers-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: msap_freshers
+      POSTGRES_USER: msap_app
+      POSTGRES_PASSWORD: msap_local_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - msap_postgres_data:/var/lib/postgresql/data
+      - ./database/migrations/001_create_schema.sql:/docker-entrypoint-initdb.d/001_create_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U msap_app -d msap_freshers"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  msap_postgres_data:
